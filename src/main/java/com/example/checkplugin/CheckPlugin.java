@@ -17,23 +17,16 @@ public class CheckPlugin extends PluginBase {
         if (!command.getName().equalsIgnoreCase("check")) {
             return false;
         }
-
         if (args.length != 1) {
             sender.sendMessage("§cИспользование: /check <ник>");
             return true;
         }
-
         Player target = this.getServer().getPlayer(args[0]);
         if (target == null) {
             sender.sendMessage("§cИгрок " + args[0] + " не найден.");
             return true;
         }
-
-        // Телепортация на точку проверки.
-        // Замените координаты на нужные вам:
-        // target.teleport(new cn.nukkit.math.Vector3(100, 100, 100));
         target.teleport(target.getLevel().getSafeSpawn());
-
         target.sendMessage("§eВы вызваны на проверку. Ожидайте модератора.");
         sender.sendMessage("§aИгрок " + target.getName() + " телепортирован.");
         return true;
