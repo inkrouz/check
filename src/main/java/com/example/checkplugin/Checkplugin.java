@@ -32,3 +32,4 @@ public class CheckPlugin extends PluginBase {
         sender.sendMessage("§aИгрок " + target.getName() + " телепортирован.");
         return true;
     }
+}
