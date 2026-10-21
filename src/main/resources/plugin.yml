@@ -1,0 +1,13 @@
+name: CheckPlugin
+main: com.example.checkplugin.CheckPlugin
+version: "1.0.0"
+api: ["1.0.0"]
+author: YourName
+commands:
+  check:
+    description: Вызвать игрока на проверку
+    usage: "/check <ник>"
+    permission: checkplugin.use
+permissions:
+  checkplugin.use:
+    default: op
