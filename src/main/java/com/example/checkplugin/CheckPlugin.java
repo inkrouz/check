@@ -35,7 +35,6 @@ public class CheckPlugin extends PluginBase implements Listener {
     private static final double CHECK_X = -2, CHECK_Y = 98, CHECK_Z = -1;
     private static final String LINE = "§8§m──────────────────────────────";
 
-    // Класс-контейнер для наказания
     private static class P {
         long expire, duration;
         String reason, banner;
@@ -99,6 +98,11 @@ public class CheckPlugin extends PluginBase implements Listener {
                 }
                 sender.sendMessage("§aИгрок " + args[1] + " снят с проверки.");
                 logAction(sender.getName(), "СНЯЛ С ПРОВЕРКИ", args[1], "");
+                // Экран всем
+                announce("СНЯТ С ПРОВЕРКИ", "§a", new String[][]{
+                        {"Игрок", args[1]},
+                        {"Снял", sender.getName()}
+                }, "§a§lСНЯТ С ПРОВЕРКИ", "§f" + args[1]);
             } else {
                 sender.sendMessage("§cИгрок " + args[1] + " не находится на проверке.");
             }
@@ -117,6 +121,11 @@ public class CheckPlugin extends PluginBase implements Listener {
             target.sendMessage("§eВы вызваны на проверку. Ожидайте модератора.");
             sender.sendMessage("§aИгрок " + target.getName() + " телепортирован на проверку.");
             logAction(sender.getName(), "ВЫЗВАЛ НА ПРОВЕРКУ", target.getName(), "");
+            // Экран всем
+            announce("ВЫЗОВ НА ПРОВЕРКУ", "§c", new String[][]{
+                    {"Игрок", target.getName()},
+                    {"Проверяющий", sender.getName()}
+            }, "§c§lПРОВЕРКА", "§f" + target.getName() + " §7вызван на проверку");
             return true;
         }
         sender.sendMessage("§cНеверное использование. /check <ник> | /check done <ник>");
@@ -149,15 +158,13 @@ public class CheckPlugin extends PluginBase implements Listener {
                     LINE, false);
         }
 
-        // Красивое объявление в чат всем
-        getServer().broadcastMessage(LINE + "\n" +
-                "§c§l     БАН\n" +
-                LINE + "\n" +
-                " §7Игрок: §f" + targetName + "\n" +
-                " §7Забанил: §f" + sender.getName() + "\n" +
-                " §7Срок: §f" + formatDuration(durationMs) + "\n" +
-                " §7Причина: §f" + reason + "\n" +
-                LINE);
+        // Экран + чат всем
+        announce("БАН", "§c", new String[][]{
+                {"Игрок", targetName},
+                {"Забанил", sender.getName()},
+                {"Срок", formatDuration(durationMs)},
+                {"Причина", reason}
+        }, "§c§lБАН", "§f" + targetName + " §7на §f" + formatDuration(durationMs));
 
         logAction(sender.getName(), "ЗАБАНИЛ", targetName, "Срок: " + formatDuration(durationMs) + " | Причина: " + reason);
         savePunishmentsToConfig();
@@ -177,7 +184,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         long expireTime = System.currentTimeMillis() + durationMs;
         mutedPlayers.put(targetName.toLowerCase(), new P(expireTime, durationMs, reason, sender.getName()));
 
-        // Сообщение самому игроку с красивой рамкой
+        // Сообщение самому игроку
         Player target = getServer().getPlayer(targetName);
         if (target != null) {
             target.sendMessage(LINE + "\n" +
@@ -189,15 +196,13 @@ public class CheckPlugin extends PluginBase implements Listener {
                     LINE);
         }
 
-        // Красивое объявление в чат всем
-        getServer().broadcastMessage(LINE + "\n" +
-                "§e§l     МУТ\n" +
-                LINE + "\n" +
-                " §7Игрок: §f" + targetName + "\n" +
-                " §7Замутил: §f" + sender.getName() + "\n" +
-                " §7Срок: §f" + formatDuration(durationMs) + "\n" +
-                " §7Причина: §f" + reason + "\n" +
-                LINE);
+        // Экран + чат всем
+        announce("МУТ", "§e", new String[][]{
+                {"Игрок", targetName},
+                {"Замутил", sender.getName()},
+                {"Срок", formatDuration(durationMs)},
+                {"Причина", reason}
+        }, "§e§lМУТ", "§f" + targetName + " §7на §f" + formatDuration(durationMs));
 
         logAction(sender.getName(), "ЗАМУТИЛ", targetName, "Срок: " + formatDuration(durationMs) + " | Причина: " + reason);
         savePunishmentsToConfig();
@@ -211,12 +216,10 @@ public class CheckPlugin extends PluginBase implements Listener {
         try { getServer().getNameBans().remove(args[0]); } catch (Exception ignored) { }
 
         if (removed) {
-            getServer().broadcastMessage(LINE + "\n" +
-                    "§a§l     РАЗБАН\n" +
-                    LINE + "\n" +
-                    " §7Игрок: §f" + args[0] + "\n" +
-                    " §7Разбанил: §f" + sender.getName() + "\n" +
-                    LINE);
+            announce("РАЗБАН", "§a", new String[][]{
+                    {"Игрок", args[0]},
+                    {"Разбанил", sender.getName()}
+            }, "§a§lРАЗБАН", "§f" + args[0] + " §7разбанен");
             logAction(sender.getName(), "РАЗБАНИЛ", args[0], "");
             savePunishmentsToConfig();
         } else {
@@ -229,12 +232,10 @@ public class CheckPlugin extends PluginBase implements Listener {
     private boolean handleUnmute(CommandSender sender, String[] args) {
         if (args.length != 1) { sender.sendMessage("§cИспользование: /unmute <ник>"); return true; }
         if (mutedPlayers.remove(args[0].toLowerCase()) != null) {
-            getServer().broadcastMessage(LINE + "\n" +
-                    "§a§l     РАЗМУТ\n" +
-                    LINE + "\n" +
-                    " §7Игрок: §f" + args[0] + "\n" +
-                    " §7Размутил: §f" + sender.getName() + "\n" +
-                    LINE);
+            announce("РАЗМУТ", "§a", new String[][]{
+                    {"Игрок", args[0]},
+                    {"Размутил", sender.getName()}
+            }, "§a§lРАЗМУТ", "§f" + args[0] + " §7размучен");
             Player target = getServer().getPlayer(args[0]);
             if (target != null) target.sendMessage("§aВы были размучены. Можете снова писать в чат.");
             logAction(sender.getName(), "РАЗМУТИЛ", args[0], "");
@@ -317,6 +318,25 @@ public class CheckPlugin extends PluginBase implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         checkingPlayers.remove(event.getPlayer().getName());
+    }
+
+    // ==================== ОБЪЯВЛЕНИЕ С ЭКРАНОМ ====================
+    private void announce(String header, String color, String[][] fields, String title, String subtitle) {
+        // Чат всем
+        StringBuilder sb = new StringBuilder();
+        sb.append(LINE).append("\n");
+        sb.append(color).append("§l     ").append(header).append("\n");
+        sb.append(LINE).append("\n");
+        for (String[] f : fields) {
+            sb.append(" §7").append(f[0]).append(": §f").append(f[1]).append("\n");
+        }
+        sb.append(LINE);
+        getServer().broadcastMessage(sb.toString());
+
+        // Титул на экран всем онлайн-игрокам
+        for (Player p : getServer().getOnlinePlayers().values()) {
+            p.sendTitle(title, subtitle, 10, 60, 10);
+        }
     }
 
     // ==================== ЛОГИРОВАНИЕ ====================
