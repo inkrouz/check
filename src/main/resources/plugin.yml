@@ -1,16 +1,37 @@
 name: CheckPlugin
 main: com.example.checkplugin.CheckPlugin
-version: "1.2.0"
+version: "1.3.0"
 api: ["1.0.0"]
 author: YourName
 commands:
   check:
-    description: Система проверок и наказаний
-    usage: "/check"
+    description: Система проверок
+    usage: "/check <ник> | /check done <ник>"
     permission: checkplugin.use
+  ban:
+    description: Забанить игрока
+    usage: "/ban <ник> <срок> [причина]"
+    permission: checkplugin.ban
+  mute:
+    description: Замутить игрока
+    usage: "/mute <ник> <срок> [причина]"
+    permission: checkplugin.mute
+  unban:
+    description: Разбанить игрока
+    usage: "/unban <ник>"
+    permission: checkplugin.unban
+  unmute:
+    description: Размутить игрока
+    usage: "/unmute <ник>"
+    permission: checkplugin.unmute
 permissions:
   checkplugin.use:
     default: op
-  checkplugin.punish:
+  checkplugin.ban:
     default: op
-    description: Доступ к бану и муту
+  checkplugin.mute:
+    default: op
+  checkplugin.unban:
+    default: op
+  checkplugin.unmute:
+    default: op
