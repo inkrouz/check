@@ -1,6 +1,6 @@
 name: CheckPlugin
 main: com.example.checkplugin.CheckPlugin
-version: "1.3.0"
+version: "1.4.0"
 api: ["1.0.0"]
 author: YourName
 commands:
@@ -24,6 +24,10 @@ commands:
     description: Размутить игрока
     usage: "/unmute <ник>"
     permission: checkplugin.unmute
+  checklogs:
+    description: Показать последние действия
+    usage: "/checklogs [кол-во]"
+    permission: checkplugin.logs
 permissions:
   checkplugin.use:
     default: op
@@ -34,4 +38,6 @@ permissions:
   checkplugin.unban:
     default: op
   checkplugin.unmute:
+    default: op
+  checkplugin.logs:
     default: op
