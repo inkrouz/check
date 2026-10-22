@@ -129,7 +129,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         String reason = args.length > 2 ? String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length)) : "Не указана";
         long expireTime = System.currentTimeMillis() + durationMs;
         bannedPlayers.put(targetName.toLowerCase(), expireTime);
-        getServer().getBanList().addBan(targetName, reason, new java.util.Date(expireTime));
+        getServer().getNameBans().addBan(targetName, reason, new java.util.Date(expireTime));
 
         Player target = getServer().getPlayer(targetName);
         if (target != null) {
@@ -174,7 +174,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         String key = args[0].toLowerCase();
         boolean removedFromMap = bannedPlayers.remove(key) != null;
         try {
-            getServer().getBanList().removeBan(args[0]);
+            getServer().getNameBans().removeBan(args[0]);
         } catch (Exception ignored) { }
 
         if (removedFromMap) {
