@@ -33,34 +33,35 @@ public class CheckPlugin extends PluginBase implements Listener {
     private final Set<String> checkingPlayers = ConcurrentHashMap.newKeySet();
     private static final String CHECK_WORLD = "dowtest";
     private static final double CHECK_X = -2, CHECK_Y = 98, CHECK_Z = -1;
+    private static final String LINE = "§8§m──────────────────────────────";
 
-    private final Map<String, Long> mutedPlayers = new HashMap<>();
-    private final Map<String, Long> bannedPlayers = new HashMap<>();
+    // Класс-контейнер для наказания
+    private static class P {
+        long expire, duration;
+        String reason, banner;
+        P(long e, long d, String r, String b) { expire = e; duration = d; reason = r; banner = b; }
+    }
+
+    private final Map<String, P> mutedPlayers = new HashMap<>();
+    private final Map<String, P> bannedPlayers = new HashMap<>();
     private Config punishConfig;
-    private File punishFile;
-    private File logFile;
+    private File punishFile, logFile;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     @Override
     public void onEnable() {
-        // Файл наказаний
         punishFile = new File(getDataFolder(), "punishments.yml");
         if (!punishFile.exists()) {
             punishFile.getParentFile().mkdirs();
-            try { punishFile.createNewFile(); } catch (Exception e) {
-                getLogger().error("Не удалось создать файл наказаний!", e);
-            }
+            try { punishFile.createNewFile(); } catch (Exception e) { getLogger().error("Не удалось создать файл наказаний!", e); }
         }
         punishConfig = new Config(punishFile, Config.YAML);
         loadPunishmentsFromConfig();
 
-        // Файл логов действий
         logFile = new File(getDataFolder(), "actions.log");
         if (!logFile.exists()) {
             logFile.getParentFile().mkdirs();
-            try { logFile.createNewFile(); } catch (Exception e) {
-                getLogger().error("Не удалось создать файл логов!", e);
-            }
+            try { logFile.createNewFile(); } catch (Exception e) { getLogger().error("Не удалось создать файл логов!", e); }
         }
 
         this.getServer().getPluginManager().registerEvents(this, this);
@@ -68,21 +69,18 @@ public class CheckPlugin extends PluginBase implements Listener {
     }
 
     @Override
-    public void onDisable() {
-        savePunishmentsToConfig();
-    }
+    public void onDisable() { savePunishmentsToConfig(); }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        String cmd = command.getName().toLowerCase();
-        switch (cmd) {
-            case "check": return handleCheck(sender, args);
-            case "ban":   return handleBan(sender, args);
-            case "mute":  return handleMute(sender, args);
-            case "unban": return handleUnban(sender, args);
-            case "unmute":return handleUnmute(sender, args);
-            case "checklogs": return handleLogs(sender, args);
-            default: return false;
+        switch (command.getName().toLowerCase()) {
+            case "check":    return handleCheck(sender, args);
+            case "ban":      return handleBan(sender, args);
+            case "mute":     return handleMute(sender, args);
+            case "unban":    return handleUnban(sender, args);
+            case "unmute":   return handleUnmute(sender, args);
+            case "checklogs":return handleLogs(sender, args);
+            default:         return false;
         }
     }
 
@@ -108,18 +106,10 @@ public class CheckPlugin extends PluginBase implements Listener {
         }
         if (args.length == 1) {
             Player target = getServer().getPlayer(args[0]);
-            if (target == null) {
-                sender.sendMessage("§cИгрок " + args[0] + " не найден.");
-                return true;
-            }
+            if (target == null) { sender.sendMessage("§cИгрок " + args[0] + " не найден."); return true; }
             Level checkLevel = getServer().getLevelByName(CHECK_WORLD);
-            if (checkLevel == null && getServer().loadLevel(CHECK_WORLD)) {
-                checkLevel = getServer().getLevelByName(CHECK_WORLD);
-            }
-            if (checkLevel == null) {
-                sender.sendMessage("§cМир '" + CHECK_WORLD + "' не существует!");
-                return true;
-            }
+            if (checkLevel == null && getServer().loadLevel(CHECK_WORLD)) checkLevel = getServer().getLevelByName(CHECK_WORLD);
+            if (checkLevel == null) { sender.sendMessage("§cМир '" + CHECK_WORLD + "' не существует!"); return true; }
             target.teleport(new Position(CHECK_X, CHECK_Y, CHECK_Z, checkLevel));
             target.setImmobile(true);
             checkingPlayers.add(target.getName());
@@ -141,22 +131,35 @@ public class CheckPlugin extends PluginBase implements Listener {
         }
         String targetName = args[0];
         long durationMs = parseDuration(args[1]);
-        if (durationMs <= 0) {
-            sender.sendMessage("§cНеверный срок. Примеры: 10d, 5h, 30m, 1d12h.");
-            return true;
-        }
+        if (durationMs <= 0) { sender.sendMessage("§cНеверный срок. Примеры: 10d, 5h, 30m, 1d12h."); return true; }
         String reason = args.length > 2 ? String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length)) : "Не указана";
         long expireTime = System.currentTimeMillis() + durationMs;
-        bannedPlayers.put(targetName.toLowerCase(), expireTime);
+        bannedPlayers.put(targetName.toLowerCase(), new P(expireTime, durationMs, reason, sender.getName()));
         getServer().getNameBans().addBan(targetName, reason, new java.util.Date(expireTime));
 
+        // Кик игрока с красивым экраном
         Player target = getServer().getPlayer(targetName);
         if (target != null) {
-            target.kick("§cВы забанены.\n§7Причина: " + reason + "\n§7Срок: " + formatDuration(durationMs));
+            target.kick(LINE + "\n" +
+                    "§c§l     ВЫ ЗАБАНЕНЫ\n" +
+                    LINE + "\n" +
+                    " §7Забанил: §f" + sender.getName() + "\n" +
+                    " §7Срок: §f" + formatDuration(durationMs) + "\n" +
+                    " §7Причина: §f" + reason + "\n" +
+                    LINE, false);
         }
-        sender.sendMessage("§cИгрок " + targetName + " забанен на " + formatDuration(durationMs) + ". Причина: " + reason);
-        logAction(sender.getName(), "ЗАБАНИЛ", targetName,
-                "Срок: " + formatDuration(durationMs) + " | Причина: " + reason);
+
+        // Красивое объявление в чат всем
+        getServer().broadcastMessage(LINE + "\n" +
+                "§c§l     БАН\n" +
+                LINE + "\n" +
+                " §7Игрок: §f" + targetName + "\n" +
+                " §7Забанил: §f" + sender.getName() + "\n" +
+                " §7Срок: §f" + formatDuration(durationMs) + "\n" +
+                " §7Причина: §f" + reason + "\n" +
+                LINE);
+
+        logAction(sender.getName(), "ЗАБАНИЛ", targetName, "Срок: " + formatDuration(durationMs) + " | Причина: " + reason);
         savePunishmentsToConfig();
         return true;
     }
@@ -169,39 +172,51 @@ public class CheckPlugin extends PluginBase implements Listener {
         }
         String targetName = args[0];
         long durationMs = parseDuration(args[1]);
-        if (durationMs <= 0) {
-            sender.sendMessage("§cНеверный срок. Примеры: 10d, 5h, 30m, 1d12h.");
-            return true;
-        }
+        if (durationMs <= 0) { sender.sendMessage("§cНеверный срок. Примеры: 10d, 5h, 30m, 1d12h."); return true; }
         String reason = args.length > 2 ? String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length)) : "Не указана";
         long expireTime = System.currentTimeMillis() + durationMs;
-        mutedPlayers.put(targetName.toLowerCase(), expireTime);
+        mutedPlayers.put(targetName.toLowerCase(), new P(expireTime, durationMs, reason, sender.getName()));
 
+        // Сообщение самому игроку с красивой рамкой
         Player target = getServer().getPlayer(targetName);
         if (target != null) {
-            target.sendMessage("§cВы замучены на " + formatDuration(durationMs) + ". Причина: " + reason);
+            target.sendMessage(LINE + "\n" +
+                    "§e§l     ВЫ ЗАМУЧЕНЫ\n" +
+                    LINE + "\n" +
+                    " §7Замутил: §f" + sender.getName() + "\n" +
+                    " §7Срок: §f" + formatDuration(durationMs) + "\n" +
+                    " §7Причина: §f" + reason + "\n" +
+                    LINE);
         }
-        sender.sendMessage("§eИгрок " + targetName + " замучен на " + formatDuration(durationMs) + ". Причина: " + reason);
-        logAction(sender.getName(), "ЗАМУТИЛ", targetName,
-                "Срок: " + formatDuration(durationMs) + " | Причина: " + reason);
+
+        // Красивое объявление в чат всем
+        getServer().broadcastMessage(LINE + "\n" +
+                "§e§l     МУТ\n" +
+                LINE + "\n" +
+                " §7Игрок: §f" + targetName + "\n" +
+                " §7Замутил: §f" + sender.getName() + "\n" +
+                " §7Срок: §f" + formatDuration(durationMs) + "\n" +
+                " §7Причина: §f" + reason + "\n" +
+                LINE);
+
+        logAction(sender.getName(), "ЗАМУТИЛ", targetName, "Срок: " + formatDuration(durationMs) + " | Причина: " + reason);
         savePunishmentsToConfig();
         return true;
     }
 
     // ==================== /unban ====================
     private boolean handleUnban(CommandSender sender, String[] args) {
-        if (args.length != 1) {
-            sender.sendMessage("§cИспользование: /unban <ник>");
-            return true;
-        }
-        String key = args[0].toLowerCase();
-        boolean removedFromMap = bannedPlayers.remove(key) != null;
-        try {
-            getServer().getNameBans().remove(args[0]);
-        } catch (Exception ignored) { }
+        if (args.length != 1) { sender.sendMessage("§cИспользование: /unban <ник>"); return true; }
+        boolean removed = bannedPlayers.remove(args[0].toLowerCase()) != null;
+        try { getServer().getNameBans().remove(args[0]); } catch (Exception ignored) { }
 
-        if (removedFromMap) {
-            sender.sendMessage("§aИгрок " + args[0] + " разбанен.");
+        if (removed) {
+            getServer().broadcastMessage(LINE + "\n" +
+                    "§a§l     РАЗБАН\n" +
+                    LINE + "\n" +
+                    " §7Игрок: §f" + args[0] + "\n" +
+                    " §7Разбанил: §f" + sender.getName() + "\n" +
+                    LINE);
             logAction(sender.getName(), "РАЗБАНИЛ", args[0], "");
             savePunishmentsToConfig();
         } else {
@@ -212,13 +227,14 @@ public class CheckPlugin extends PluginBase implements Listener {
 
     // ==================== /unmute ====================
     private boolean handleUnmute(CommandSender sender, String[] args) {
-        if (args.length != 1) {
-            sender.sendMessage("§cИспользование: /unmute <ник>");
-            return true;
-        }
-        String key = args[0].toLowerCase();
-        if (mutedPlayers.remove(key) != null) {
-            sender.sendMessage("§aИгрок " + args[0] + " размучен.");
+        if (args.length != 1) { sender.sendMessage("§cИспользование: /unmute <ник>"); return true; }
+        if (mutedPlayers.remove(args[0].toLowerCase()) != null) {
+            getServer().broadcastMessage(LINE + "\n" +
+                    "§a§l     РАЗМУТ\n" +
+                    LINE + "\n" +
+                    " §7Игрок: §f" + args[0] + "\n" +
+                    " §7Размутил: §f" + sender.getName() + "\n" +
+                    LINE);
             Player target = getServer().getPlayer(args[0]);
             if (target != null) target.sendMessage("§aВы были размучены. Можете снова писать в чат.");
             logAction(sender.getName(), "РАЗМУТИЛ", args[0], "");
@@ -229,30 +245,23 @@ public class CheckPlugin extends PluginBase implements Listener {
         return true;
     }
 
-    // ==================== /checklogs [кол-во] ====================
+    // ==================== /checklogs ====================
     private boolean handleLogs(CommandSender sender, String[] args) {
         int lines = 20;
-        if (args.length == 1) {
-            try { lines = Integer.parseInt(args[0]); } catch (NumberFormatException ignored) {}
-        }
-        if (!logFile.exists()) {
-            sender.sendMessage("§cЛог-файл ещё не создан (не было действий).");
-            return true;
-        }
+        if (args.length == 1) { try { lines = Integer.parseInt(args[0]); } catch (NumberFormatException ignored) {} }
+        if (!logFile.exists()) { sender.sendMessage("§cЛог-файл ещё не создан (не было действий)."); return true; }
         try {
             java.util.List<String> all = java.nio.file.Files.readAllLines(logFile.toPath());
             int from = Math.max(0, all.size() - lines);
             sender.sendMessage("§6=== Последние " + (all.size() - from) + " действий ===");
-            for (int i = from; i < all.size(); i++) {
-                sender.sendMessage("§7" + all.get(i));
-            }
+            for (int i = from; i < all.size(); i++) sender.sendMessage("§7" + all.get(i));
         } catch (IOException e) {
             sender.sendMessage("§cОшибка чтения лога: " + e.getMessage());
         }
         return true;
     }
 
-    // ==================== БЛОКИРОВКА КОМАНД И ДВИЖЕНИЯ НА ПРОВЕРКЕ ====================
+    // ==================== БЛОКИРОВКИ ====================
     @EventHandler
     public void onCommandPreprocess(PlayerCommandPreprocessEvent event) {
         if (checkingPlayers.contains(event.getPlayer().getName())) {
@@ -263,34 +272,42 @@ public class CheckPlugin extends PluginBase implements Listener {
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
-        if (checkingPlayers.contains(event.getPlayer().getName())) {
-            event.setCancelled(true);
-        }
+        if (checkingPlayers.contains(event.getPlayer().getName())) event.setCancelled(true);
     }
 
-    // ==================== БЛОКИРОВКА ЧАТА ДЛЯ ЗАМУЧЕННЫХ ====================
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onPlayerChat(PlayerChatEvent event) {
         String name = event.getPlayer().getName().toLowerCase();
-        Long expire = mutedPlayers.get(name);
-        if (expire != null) {
-            if (System.currentTimeMillis() < expire) {
+        P p = mutedPlayers.get(name);
+        if (p != null) {
+            if (System.currentTimeMillis() < p.expire) {
                 event.setCancelled(true);
-                event.getPlayer().sendMessage("§cВы замучены. Осталось: " + getRemainingTime(expire));
+                event.getPlayer().sendMessage(LINE + "\n" +
+                        "§e§l     ВЫ ЗАМУЧЕНЫ\n" +
+                        LINE + "\n" +
+                        " §7Причина: §f" + p.reason + "\n" +
+                        " §7Осталось: §f" + getRemainingTime(p.expire) + "\n" +
+                        LINE);
             } else {
                 mutedPlayers.remove(name);
             }
         }
     }
 
-    // ==================== ПРОВЕРКА БАНА ПРИ ВХОДЕ ====================
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         String name = event.getPlayer().getName().toLowerCase();
-        Long expire = bannedPlayers.get(name);
-        if (expire != null) {
-            if (System.currentTimeMillis() < expire) {
-                event.getPlayer().kick("§cВы забанены. Осталось: " + getRemainingTime(expire));
+        P p = bannedPlayers.get(name);
+        if (p != null) {
+            if (System.currentTimeMillis() < p.expire) {
+                event.getPlayer().kick(LINE + "\n" +
+                        "§c§l     ВЫ ЗАБАНЕНЫ\n" +
+                        LINE + "\n" +
+                        " §7Забанил: §f" + p.banner + "\n" +
+                        " §7Срок: §f" + formatDuration(p.duration) + "\n" +
+                        " §7Причина: §f" + p.reason + "\n" +
+                        " §7Осталось: §f" + getRemainingTime(p.expire) + "\n" +
+                        LINE, false);
             } else {
                 bannedPlayers.remove(name);
             }
@@ -306,22 +323,16 @@ public class CheckPlugin extends PluginBase implements Listener {
     private void logAction(String who, String action, String target, String details) {
         String line = "[" + dateFormat.format(new Date()) + "] " + who + " " + action + " " + target
                 + (details.isEmpty() ? "" : " | " + details);
-        // В консоль сервера
         getLogger().info("[LOG] " + line);
-        // В файл
-        try (FileWriter fw = new FileWriter(logFile, true)) {
-            fw.write(line + System.lineSeparator());
-        } catch (IOException e) {
-            getLogger().error("Не удалось записать лог: " + e.getMessage());
-        }
+        try (FileWriter fw = new FileWriter(logFile, true)) { fw.write(line + System.lineSeparator()); }
+        catch (IOException e) { getLogger().error("Не удалось записать лог: " + e.getMessage()); }
     }
 
     // ==================== УТИЛИТЫ ====================
     private long parseDuration(String input) {
         Pattern pattern = Pattern.compile("(\\d+)([dhms])");
         Matcher matcher = pattern.matcher(input.toLowerCase());
-        long totalMs = 0;
-        boolean found = false;
+        long totalMs = 0; boolean found = false;
         while (matcher.find()) {
             found = true;
             long value = Long.parseLong(matcher.group(1));
@@ -354,19 +365,35 @@ public class CheckPlugin extends PluginBase implements Listener {
     private void loadPunishmentsFromConfig() {
         if (punishConfig.isSection("bans")) {
             for (String key : punishConfig.getSection("bans").getKeys(false)) {
-                bannedPlayers.put(key, punishConfig.getLong("bans." + key));
+                String[] parts = punishConfig.getString("bans." + key, "").split("\\|", 4);
+                if (parts.length == 4) {
+                    try { bannedPlayers.put(key, new P(Long.parseLong(parts[0]), Long.parseLong(parts[1]), parts[3], parts[2])); }
+                    catch (NumberFormatException ignored) {}
+                }
             }
         }
         if (punishConfig.isSection("mutes")) {
             for (String key : punishConfig.getSection("mutes").getKeys(false)) {
-                mutedPlayers.put(key, punishConfig.getLong("mutes." + key));
+                String[] parts = punishConfig.getString("mutes." + key, "").split("\\|", 4);
+                if (parts.length == 4) {
+                    try { mutedPlayers.put(key, new P(Long.parseLong(parts[0]), Long.parseLong(parts[1]), parts[3], parts[2])); }
+                    catch (NumberFormatException ignored) {}
+                }
             }
         }
     }
 
     private void savePunishmentsToConfig() {
-        punishConfig.set("bans", bannedPlayers);
-        punishConfig.set("mutes", mutedPlayers);
+        punishConfig.set("bans", null);
+        for (Map.Entry<String, P> e : bannedPlayers.entrySet()) {
+            P p = e.getValue();
+            punishConfig.set("bans." + e.getKey(), p.expire + "|" + p.duration + "|" + p.banner + "|" + p.reason);
+        }
+        punishConfig.set("mutes", null);
+        for (Map.Entry<String, P> e : mutedPlayers.entrySet()) {
+            P p = e.getValue();
+            punishConfig.set("mutes." + e.getKey(), p.expire + "|" + p.duration + "|" + p.banner + "|" + p.reason);
+        }
         punishConfig.save();
     }
 }
