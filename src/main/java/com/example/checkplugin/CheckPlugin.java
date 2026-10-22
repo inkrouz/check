@@ -1,7 +1,6 @@
 package com.example.checkplugin;
 
 import cn.nukkit.Player;
-import cn.nukkit.Server;
 import cn.nukkit.command.Command;
 import cn.nukkit.command.CommandSender;
 import cn.nukkit.event.EventHandler;
@@ -27,13 +26,10 @@ import java.util.regex.Pattern;
 
 public class CheckPlugin extends PluginBase implements Listener {
 
-    // --- Данные о проверках ---
     private final Set<String> checkingPlayers = ConcurrentHashMap.newKeySet();
     private static final String CHECK_WORLD = "dowtest";
     private static final double CHECK_X = -2, CHECK_Y = 98, CHECK_Z = -1;
 
-    // --- Данные о наказаниях ---
-    // Ключ: имя игрока (в нижнем регистре). Значение: время окончания наказания (timestamp в мс).
     private final Map<String, Long> mutedPlayers = new HashMap<>();
     private final Map<String, Long> bannedPlayers = new HashMap<>();
     private Config punishConfig;
@@ -41,18 +37,14 @@ public class CheckPlugin extends PluginBase implements Listener {
 
     @Override
     public void onEnable() {
-        // Загружаем сохранённые наказания
         punishFile = new File(getDataFolder(), "punishments.yml");
         if (!punishFile.exists()) {
             punishFile.getParentFile().mkdirs();
-            try {
-                punishFile.createNewFile();
-            } catch (Exception e) {
+            try { punishFile.createNewFile(); } catch (Exception e) {
                 getLogger().error("Не удалось создать файл наказаний!", e);
             }
         }
         punishConfig = new Config(punishFile, Config.YAML);
-
         loadPunishmentsFromConfig();
         this.getServer().getPluginManager().registerEvents(this, this);
         this.getLogger().info("CheckPlugin включен! Система наказаний активна.");
@@ -63,111 +55,152 @@ public class CheckPlugin extends PluginBase implements Listener {
         savePunishmentsToConfig();
     }
 
-    // ==================== ОСНОВНАЯ КОМАНДА /check ====================
+    // ==================== РАСПРЕДЕЛЕНИЕ КОМАНД ====================
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!command.getName().equalsIgnoreCase("check")) {
-            return false;
+        String cmd = command.getName().toLowerCase();
+        switch (cmd) {
+            case "check": return handleCheck(sender, args);
+            case "ban":   return handleBan(sender, args);
+            case "mute":  return handleMute(sender, args);
+            case "unban": return handleUnban(sender, args);
+            case "unmute":return handleUnmute(sender, args);
+            default: return false;
         }
+    }
+
+    // ==================== /check ====================
+    private boolean handleCheck(CommandSender sender, String[] args) {
         if (args.length == 0) {
-            sender.sendMessage("§cИспользование: /check <ник> | /check done <ник> | /check ban <ник> <срок> [причина] | /check mute <ник> <срок> [причина]");
+            sender.sendMessage("§cИспользование: /check <ник> | /check done <ник>");
             return true;
         }
-
-        // /check done <ник>
         if (args.length == 2 && args[0].equalsIgnoreCase("done")) {
-            return handleCheckDone(sender, args[1]);
+            if (checkingPlayers.remove(args[1])) {
+                Player target = getServer().getPlayer(args[1]);
+                if (target != null) {
+                    target.setImmobile(false);
+                    target.sendMessage("§aПроверка завершена. Вы снова можете двигаться и использовать команды.");
+                }
+                sender.sendMessage("§aИгрок " + args[1] + " снят с проверки.");
+            } else {
+                sender.sendMessage("§cИгрок " + args[1] + " не находится на проверке.");
+            }
+            return true;
         }
-        // /check ban <ник> <срок> [причина]
-        if (args[0].equalsIgnoreCase("ban") && args.length >= 3) {
-            return handlePunishCommand(sender, args, true);
-        }
-        // /check mute <ник> <срок> [причина]
-        if (args[0].equalsIgnoreCase("mute") && args.length >= 3) {
-            return handlePunishCommand(sender, args, false);
-        }
-        // /check <ник>
         if (args.length == 1) {
-            return handleCallToCheck(sender, args[0]);
-        }
-
-        sender.sendMessage("§cНеверное использование. Введите /check для справки.");
-        return true;
-    }
-
-    // ==================== ВЫЗОВ НА ПРОВЕРКУ ====================
-    private boolean handleCallToCheck(CommandSender sender, String targetName) {
-        Player target = getServer().getPlayer(targetName);
-        if (target == null) {
-            sender.sendMessage("§cИгрок " + targetName + " не найден.");
-            return true;
-        }
-
-        String checkerName = sender.getName();
-        Level checkLevel = getServer().getLevelByName(CHECK_WORLD);
-        if (checkLevel == null && getServer().loadLevel(CHECK_WORLD)) {
-            checkLevel = getServer().getLevelByName(CHECK_WORLD);
-        }
-        if (checkLevel == null) {
-            sender.sendMessage("§cМир '" + CHECK_WORLD + "' не существует!");
-            return true;
-        }
-
-        target.teleport(new Position(CHECK_X, CHECK_Y, CHECK_Z, checkLevel));
-        target.setImmobile(true);
-        checkingPlayers.add(target.getName());
-
-        target.sendTitle("§cВы вызваны на проверку", "§eПроверяющий: §f" + checkerName, 20, 100, 20);
-        target.sendMessage("§eВы вызваны на проверку. Ожидайте модератора.");
-        sender.sendMessage("§aИгрок " + target.getName() + " телепортирован на проверку.");
-        return true;
-    }
-
-    // ==================== СНЯТИЕ С ПРОВЕРКИ ====================
-    private boolean handleCheckDone(CommandSender sender, String targetName) {
-        if (checkingPlayers.remove(targetName)) {
-            Player target = getServer().getPlayer(targetName);
-            if (target != null) {
-                target.setImmobile(false);
-                target.sendMessage("§aПроверка завершена. Вы снова можете двигаться и использовать команды.");
+            Player target = getServer().getPlayer(args[0]);
+            if (target == null) {
+                sender.sendMessage("§cИгрок " + args[0] + " не найден.");
+                return true;
             }
-            sender.sendMessage("§aИгрок " + targetName + " снят с проверки.");
-        } else {
-            sender.sendMessage("§cИгрок " + targetName + " не находится на проверке.");
+            Level checkLevel = getServer().getLevelByName(CHECK_WORLD);
+            if (checkLevel == null && getServer().loadLevel(CHECK_WORLD)) {
+                checkLevel = getServer().getLevelByName(CHECK_WORLD);
+            }
+            if (checkLevel == null) {
+                sender.sendMessage("§cМир '" + CHECK_WORLD + "' не существует!");
+                return true;
+            }
+            target.teleport(new Position(CHECK_X, CHECK_Y, CHECK_Z, checkLevel));
+            target.setImmobile(true);
+            checkingPlayers.add(target.getName());
+            target.sendTitle("§cВы вызваны на проверку", "§eПроверяющий: §f" + sender.getName(), 20, 100, 20);
+            target.sendMessage("§eВы вызваны на проверку. Ожидайте модератора.");
+            sender.sendMessage("§aИгрок " + target.getName() + " телепортирован на проверку.");
+            return true;
         }
+        sender.sendMessage("§cНеверное использование. /check <ник> | /check done <ник>");
         return true;
     }
 
-    // ==================== ВЫДАЧА НАКАЗАНИЯ (БАН/МУТ) ====================
-    private boolean handlePunishCommand(CommandSender sender, String[] args, boolean isBan) {
-        String targetName = args[1];
-        String durationStr = args[2];
-        String reason = args.length > 3 ? String.join(" ", java.util.Arrays.copyOfRange(args, 3, args.length)) : "Не указана";
-
-        long durationMs = parseDuration(durationStr);
+    // ==================== /ban <ник> <срок> [причина] ====================
+    private boolean handleBan(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage("§cИспользование: /ban <ник> <срок> [причина]  (пример: /ban Steve 10d Читы)");
+            return true;
+        }
+        String targetName = args[0];
+        long durationMs = parseDuration(args[1]);
         if (durationMs <= 0) {
-            sender.sendMessage("§cНеверный формат срока. Примеры: 10d (10 дней), 5h (5 часов), 30m (30 минут).");
+            sender.sendMessage("§cНеверный срок. Примеры: 10d, 5h, 30m, 1d12h.");
             return true;
         }
-
+        String reason = args.length > 2 ? String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length)) : "Не указана";
         long expireTime = System.currentTimeMillis() + durationMs;
-        String key = targetName.toLowerCase();
+        bannedPlayers.put(targetName.toLowerCase(), expireTime);
+        getServer().getBanList().addBan(targetName, reason, new java.util.Date(expireTime));
 
-        if (isBan) {
-            bannedPlayers.put(key, expireTime);
-            Player target = getServer().getPlayer(targetName);
-            if (target != null) {
-                target.kick("§cВы забанены. Причина: " + reason + " §7Срок: " + formatDuration(durationMs), false);
-            }
-            getServer().getBanList().addBan(targetName, reason, new java.util.Date(expireTime)); // Дополнительная запись в бан-лист сервера
-            sender.sendMessage("§cИгрок " + targetName + " забанен на " + formatDuration(durationMs) + ". Причина: " + reason);
-        } else {
-            mutedPlayers.put(key, expireTime);
-            sender.sendMessage("§eИгрок " + targetName + " замучен на " + formatDuration(durationMs) + ". Причина: " + reason);
-            Player target = getServer().getPlayer(targetName);
-            if (target != null) target.sendMessage("§cВы замучены на " + formatDuration(durationMs) + ". Причина: " + reason);
+        Player target = getServer().getPlayer(targetName);
+        if (target != null) {
+            target.kick("§cВы забанены.\n§7Причина: " + reason + "\n§7Срок: " + formatDuration(durationMs));
         }
+        sender.sendMessage("§cИгрок " + targetName + " забанен на " + formatDuration(durationMs) + ". Причина: " + reason);
         savePunishmentsToConfig();
+        return true;
+    }
+
+    // ==================== /mute <ник> <срок> [причина] ====================
+    private boolean handleMute(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage("§cИспользование: /mute <ник> <срок> [причина]  (пример: /mute Steve 5h Оскорбления)");
+            return true;
+        }
+        String targetName = args[0];
+        long durationMs = parseDuration(args[1]);
+        if (durationMs <= 0) {
+            sender.sendMessage("§cНеверный срок. Примеры: 10d, 5h, 30m, 1d12h.");
+            return true;
+        }
+        String reason = args.length > 2 ? String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length)) : "Не указана";
+        long expireTime = System.currentTimeMillis() + durationMs;
+        mutedPlayers.put(targetName.toLowerCase(), expireTime);
+
+        Player target = getServer().getPlayer(targetName);
+        if (target != null) {
+            target.sendMessage("§cВы замучены на " + formatDuration(durationMs) + ". Причина: " + reason);
+        }
+        sender.sendMessage("§eИгрок " + targetName + " замучен на " + formatDuration(durationMs) + ". Причина: " + reason);
+        savePunishmentsToConfig();
+        return true;
+    }
+
+    // ==================== /unban <ник> ====================
+    private boolean handleUnban(CommandSender sender, String[] args) {
+        if (args.length != 1) {
+            sender.sendMessage("§cИспользование: /unban <ник>");
+            return true;
+        }
+        String key = args[0].toLowerCase();
+        boolean removedFromMap = bannedPlayers.remove(key) != null;
+        try {
+            getServer().getBanList().removeBan(args[0]);
+        } catch (Exception ignored) { }
+
+        if (removedFromMap) {
+            sender.sendMessage("§aИгрок " + args[0] + " разбанен.");
+            savePunishmentsToConfig();
+        } else {
+            sender.sendMessage("§cИгрок " + args[0] + " не находится в бан-листе плагина.");
+        }
+        return true;
+    }
+
+    // ==================== /unmute <ник> ====================
+    private boolean handleUnmute(CommandSender sender, String[] args) {
+        if (args.length != 1) {
+            sender.sendMessage("§cИспользование: /unmute <ник>");
+            return true;
+        }
+        String key = args[0].toLowerCase();
+        if (mutedPlayers.remove(key) != null) {
+            sender.sendMessage("§aИгрок " + args[0] + " размучен.");
+            Player target = getServer().getPlayer(args[0]);
+            if (target != null) target.sendMessage("§aВы были размучены. Можете снова писать в чат.");
+            savePunishmentsToConfig();
+        } else {
+            sender.sendMessage("§cИгрок " + args[0] + " не находится в муте.");
+        }
         return true;
     }
 
@@ -197,7 +230,7 @@ public class CheckPlugin extends PluginBase implements Listener {
                 event.setCancelled(true);
                 event.getPlayer().sendMessage("§cВы замучены. Осталось: " + getRemainingTime(expire));
             } else {
-                mutedPlayers.remove(name); // Срок истёк
+                mutedPlayers.remove(name);
             }
         }
     }
@@ -211,7 +244,7 @@ public class CheckPlugin extends PluginBase implements Listener {
             if (System.currentTimeMillis() < expire) {
                 event.getPlayer().kick("§cВы забанены. Осталось: " + getRemainingTime(expire));
             } else {
-                bannedPlayers.remove(name); // Срок истёк
+                bannedPlayers.remove(name);
             }
         }
     }
@@ -221,9 +254,8 @@ public class CheckPlugin extends PluginBase implements Listener {
         checkingPlayers.remove(event.getPlayer().getName());
     }
 
-    // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
+    // ==================== УТИЛИТЫ ====================
     private long parseDuration(String input) {
-        // Поддерживает форматы: 10d, 5h, 30m, 45s. Можно комбинировать: 1d12h.
         Pattern pattern = Pattern.compile("(\\d+)([dhms])");
         Matcher matcher = pattern.matcher(input.toLowerCase());
         long totalMs = 0;
@@ -249,13 +281,12 @@ public class CheckPlugin extends PluginBase implements Listener {
         if (days > 0) sb.append(days).append("д ");
         if (hours > 0) sb.append(hours).append("ч ");
         if (minutes > 0) sb.append(minutes).append("м");
-        return sb.toString().trim();
+        return sb.toString().trim().isEmpty() ? "0м" : sb.toString().trim();
     }
 
     private String getRemainingTime(long expireTimestamp) {
         long remaining = expireTimestamp - System.currentTimeMillis();
-        if (remaining <= 0) return "0м";
-        return formatDuration(remaining);
+        return remaining <= 0 ? "0м" : formatDuration(remaining);
     }
 
     private void loadPunishmentsFromConfig() {
