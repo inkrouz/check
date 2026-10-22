@@ -55,7 +55,6 @@ public class CheckPlugin extends PluginBase implements Listener {
         savePunishmentsToConfig();
     }
 
-    // ==================== РАСПРЕДЕЛЕНИЕ КОМАНД ====================
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         String cmd = command.getName().toLowerCase();
@@ -174,7 +173,8 @@ public class CheckPlugin extends PluginBase implements Listener {
         String key = args[0].toLowerCase();
         boolean removedFromMap = bannedPlayers.remove(key) != null;
         try {
-            getServer().getNameBans().removeBan(args[0]);
+            // ИСПРАВЛЕНО: removeBan -> remove
+            getServer().getNameBans().remove(args[0]);
         } catch (Exception ignored) { }
 
         if (removedFromMap) {
