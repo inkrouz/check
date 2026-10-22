@@ -17,6 +17,10 @@ import cn.nukkit.plugin.PluginBase;
 import cn.nukkit.utils.Config;
 
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -34,9 +38,12 @@ public class CheckPlugin extends PluginBase implements Listener {
     private final Map<String, Long> bannedPlayers = new HashMap<>();
     private Config punishConfig;
     private File punishFile;
+    private File logFile;
+    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     @Override
     public void onEnable() {
+        // Файл наказаний
         punishFile = new File(getDataFolder(), "punishments.yml");
         if (!punishFile.exists()) {
             punishFile.getParentFile().mkdirs();
@@ -46,8 +53,18 @@ public class CheckPlugin extends PluginBase implements Listener {
         }
         punishConfig = new Config(punishFile, Config.YAML);
         loadPunishmentsFromConfig();
+
+        // Файл логов действий
+        logFile = new File(getDataFolder(), "actions.log");
+        if (!logFile.exists()) {
+            logFile.getParentFile().mkdirs();
+            try { logFile.createNewFile(); } catch (Exception e) {
+                getLogger().error("Не удалось создать файл логов!", e);
+            }
+        }
+
         this.getServer().getPluginManager().registerEvents(this, this);
-        this.getLogger().info("CheckPlugin включен! Система наказаний активна.");
+        this.getLogger().info("CheckPlugin включен! Система наказаний и логирования активна.");
     }
 
     @Override
@@ -64,6 +81,7 @@ public class CheckPlugin extends PluginBase implements Listener {
             case "mute":  return handleMute(sender, args);
             case "unban": return handleUnban(sender, args);
             case "unmute":return handleUnmute(sender, args);
+            case "checklogs": return handleLogs(sender, args);
             default: return false;
         }
     }
@@ -82,6 +100,7 @@ public class CheckPlugin extends PluginBase implements Listener {
                     target.sendMessage("§aПроверка завершена. Вы снова можете двигаться и использовать команды.");
                 }
                 sender.sendMessage("§aИгрок " + args[1] + " снят с проверки.");
+                logAction(sender.getName(), "СНЯЛ С ПРОВЕРКИ", args[1], "");
             } else {
                 sender.sendMessage("§cИгрок " + args[1] + " не находится на проверке.");
             }
@@ -107,13 +126,14 @@ public class CheckPlugin extends PluginBase implements Listener {
             target.sendTitle("§cВы вызваны на проверку", "§eПроверяющий: §f" + sender.getName(), 20, 100, 20);
             target.sendMessage("§eВы вызваны на проверку. Ожидайте модератора.");
             sender.sendMessage("§aИгрок " + target.getName() + " телепортирован на проверку.");
+            logAction(sender.getName(), "ВЫЗВАЛ НА ПРОВЕРКУ", target.getName(), "");
             return true;
         }
         sender.sendMessage("§cНеверное использование. /check <ник> | /check done <ник>");
         return true;
     }
 
-    // ==================== /ban <ник> <срок> [причина] ====================
+    // ==================== /ban ====================
     private boolean handleBan(CommandSender sender, String[] args) {
         if (args.length < 2) {
             sender.sendMessage("§cИспользование: /ban <ник> <срок> [причина]  (пример: /ban Steve 10d Читы)");
@@ -135,11 +155,13 @@ public class CheckPlugin extends PluginBase implements Listener {
             target.kick("§cВы забанены.\n§7Причина: " + reason + "\n§7Срок: " + formatDuration(durationMs));
         }
         sender.sendMessage("§cИгрок " + targetName + " забанен на " + formatDuration(durationMs) + ". Причина: " + reason);
+        logAction(sender.getName(), "ЗАБАНИЛ", targetName,
+                "Срок: " + formatDuration(durationMs) + " | Причина: " + reason);
         savePunishmentsToConfig();
         return true;
     }
 
-    // ==================== /mute <ник> <срок> [причина] ====================
+    // ==================== /mute ====================
     private boolean handleMute(CommandSender sender, String[] args) {
         if (args.length < 2) {
             sender.sendMessage("§cИспользование: /mute <ник> <срок> [причина]  (пример: /mute Steve 5h Оскорбления)");
@@ -160,11 +182,13 @@ public class CheckPlugin extends PluginBase implements Listener {
             target.sendMessage("§cВы замучены на " + formatDuration(durationMs) + ". Причина: " + reason);
         }
         sender.sendMessage("§eИгрок " + targetName + " замучен на " + formatDuration(durationMs) + ". Причина: " + reason);
+        logAction(sender.getName(), "ЗАМУТИЛ", targetName,
+                "Срок: " + formatDuration(durationMs) + " | Причина: " + reason);
         savePunishmentsToConfig();
         return true;
     }
 
-    // ==================== /unban <ник> ====================
+    // ==================== /unban ====================
     private boolean handleUnban(CommandSender sender, String[] args) {
         if (args.length != 1) {
             sender.sendMessage("§cИспользование: /unban <ник>");
@@ -173,12 +197,12 @@ public class CheckPlugin extends PluginBase implements Listener {
         String key = args[0].toLowerCase();
         boolean removedFromMap = bannedPlayers.remove(key) != null;
         try {
-            // ИСПРАВЛЕНО: removeBan -> remove
             getServer().getNameBans().remove(args[0]);
         } catch (Exception ignored) { }
 
         if (removedFromMap) {
             sender.sendMessage("§aИгрок " + args[0] + " разбанен.");
+            logAction(sender.getName(), "РАЗБАНИЛ", args[0], "");
             savePunishmentsToConfig();
         } else {
             sender.sendMessage("§cИгрок " + args[0] + " не находится в бан-листе плагина.");
@@ -186,7 +210,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         return true;
     }
 
-    // ==================== /unmute <ник> ====================
+    // ==================== /unmute ====================
     private boolean handleUnmute(CommandSender sender, String[] args) {
         if (args.length != 1) {
             sender.sendMessage("§cИспользование: /unmute <ник>");
@@ -197,9 +221,33 @@ public class CheckPlugin extends PluginBase implements Listener {
             sender.sendMessage("§aИгрок " + args[0] + " размучен.");
             Player target = getServer().getPlayer(args[0]);
             if (target != null) target.sendMessage("§aВы были размучены. Можете снова писать в чат.");
+            logAction(sender.getName(), "РАЗМУТИЛ", args[0], "");
             savePunishmentsToConfig();
         } else {
             sender.sendMessage("§cИгрок " + args[0] + " не находится в муте.");
+        }
+        return true;
+    }
+
+    // ==================== /checklogs [кол-во] ====================
+    private boolean handleLogs(CommandSender sender, String[] args) {
+        int lines = 20;
+        if (args.length == 1) {
+            try { lines = Integer.parseInt(args[0]); } catch (NumberFormatException ignored) {}
+        }
+        if (!logFile.exists()) {
+            sender.sendMessage("§cЛог-файл ещё не создан (не было действий).");
+            return true;
+        }
+        try {
+            java.util.List<String> all = java.nio.file.Files.readAllLines(logFile.toPath());
+            int from = Math.max(0, all.size() - lines);
+            sender.sendMessage("§6=== Последние " + (all.size() - from) + " действий ===");
+            for (int i = from; i < all.size(); i++) {
+                sender.sendMessage("§7" + all.get(i));
+            }
+        } catch (IOException e) {
+            sender.sendMessage("§cОшибка чтения лога: " + e.getMessage());
         }
         return true;
     }
@@ -252,6 +300,20 @@ public class CheckPlugin extends PluginBase implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         checkingPlayers.remove(event.getPlayer().getName());
+    }
+
+    // ==================== ЛОГИРОВАНИЕ ====================
+    private void logAction(String who, String action, String target, String details) {
+        String line = "[" + dateFormat.format(new Date()) + "] " + who + " " + action + " " + target
+                + (details.isEmpty() ? "" : " | " + details);
+        // В консоль сервера
+        getLogger().info("[LOG] " + line);
+        // В файл
+        try (FileWriter fw = new FileWriter(logFile, true)) {
+            fw.write(line + System.lineSeparator());
+        } catch (IOException e) {
+            getLogger().error("Не удалось записать лог: " + e.getMessage());
+        }
     }
 
     // ==================== УТИЛИТЫ ====================
