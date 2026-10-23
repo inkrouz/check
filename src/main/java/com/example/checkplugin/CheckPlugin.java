@@ -11,18 +11,27 @@ import cn.nukkit.event.player.PlayerCommandPreprocessEvent;
 import cn.nukkit.event.player.PlayerJoinEvent;
 import cn.nukkit.event.player.PlayerMoveEvent;
 import cn.nukkit.event.player.PlayerQuitEvent;
+import cn.nukkit.form.element.ElementButton;
+import cn.nukkit.form.handler.FormResponseHandler;
+import cn.nukkit.form.window.FormWindowSimple;
+import cn.nukkit.item.Item;
 import cn.nukkit.level.Level;
 import cn.nukkit.level.Position;
 import cn.nukkit.plugin.PluginBase;
 import cn.nukkit.utils.Config;
+import me.onebone.fakeinventories.FakeInventories;
+import me.onebone.fakeinventories.api.FakeInventory;
+import me.onebone.fakeinventories.api.FakeInventoryType;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,6 +39,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class CheckPlugin extends PluginBase implements Listener {
+
+    private static CheckPlugin instance;
+    public static CheckPlugin getInstance() { return instance; }
 
     private final Set<String> checkingPlayers = ConcurrentHashMap.newKeySet();
     private static final String CHECK_WORLD = "dowtest";
@@ -42,14 +54,25 @@ public class CheckPlugin extends PluginBase implements Listener {
         P(long e, long d, String r, String b) { expire = e; duration = d; reason = r; banner = b; }
     }
 
+    public static class Report {
+        public String reporter, target, reason, time;
+        public Report(String reporter, String target, String reason, String time) {
+            this.reporter = reporter; this.target = target; this.reason = reason; this.time = time;
+        }
+    }
+
     private final Map<String, P> mutedPlayers = new HashMap<>();
     private final Map<String, P> bannedPlayers = new HashMap<>();
+    private final List<Report> reports = new ArrayList<>();
     private Config punishConfig;
     private File punishFile, logFile;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    private FakeInventories fakeInventories;
 
     @Override
     public void onEnable() {
+        instance = this;
+
         punishFile = new File(getDataFolder(), "punishments.yml");
         if (!punishFile.exists()) {
             punishFile.getParentFile().mkdirs();
@@ -64,13 +87,23 @@ public class CheckPlugin extends PluginBase implements Listener {
             try { logFile.createNewFile(); } catch (Exception e) { getLogger().error("Не удалось создать файл логов!", e); }
         }
 
+        try {
+            fakeInventories = (FakeInventories) getServer().getServiceManager()
+                    .getProvider(FakeInventories.class).getProvider();
+        } catch (Exception e) {
+            getLogger().warning("FakeInventories не найден. /reports не будет работать.");
+        }
+
         this.getServer().getPluginManager().registerEvents(this, this);
-        this.getLogger().info("CheckPlugin включен! Система проверок и наказаний активна.");
+        this.getLogger().info("CheckPlugin включен! Система проверок, наказаний и репортов активна.");
     }
 
     @Override
     public void onDisable() { savePunishmentsToConfig(); }
 
+    public FakeInventories getFakeInventories() { return fakeInventories; }
+
+    // ==================== КОМАНДЫ ====================
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         switch (command.getName().toLowerCase()) {
@@ -80,10 +113,126 @@ public class CheckPlugin extends PluginBase implements Listener {
             case "unban":    return handleUnban(sender, args);
             case "unmute":   return handleUnmute(sender, args);
             case "checklogs":return handleLogs(sender, args);
+            case "report":   return handleReport(sender, args);
+            case "reports":  return handleReports(sender, args);
             default:         return false;
         }
     }
 
+    // ==================== /report ====================
+    private boolean handleReport(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player)) { sender.sendMessage("§cТолько для игроков."); return true; }
+        if (args.length < 2) { sender.sendMessage("§c/report <ник> <причина>"); return true; }
+        String target = args[0];
+        String reason = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
+        String time = new SimpleDateFormat("HH:mm dd.MM").format(new Date());
+        reports.add(new Report(sender.getName(), target, reason, time));
+        sender.sendMessage("§aРепорт на " + target + " отправлен.");
+        getLogger().info("[REPORT] " + sender.getName() + " -> " + target + " | " + reason);
+        return true;
+    }
+
+    // ==================== /reports ====================
+    private boolean handleReports(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player)) { sender.sendMessage("§cТолько для игроков."); return true; }
+        if (fakeInventories == null) { sender.sendMessage("§cОшибка: FakeInventories не установлен."); return true; }
+        if (reports.isEmpty()) { sender.sendMessage("§eРепортов нет."); return true; }
+
+        Player p = (Player) sender;
+        getServer().getScheduler().scheduleDelayedTask(this, () -> openReportGUI(p), 20);
+        return true;
+    }
+
+    private void openReportGUI(Player player) {
+        if (fakeInventories == null) return;
+        List<Report> currentReports = new ArrayList<>(reports);
+        FakeInventory inv = fakeInventories.createInventory(FakeInventoryType.DOUBLE_CHEST,
+                "§4Репорты (" + currentReports.size() + ")");
+
+        for (int i = 0; i < Math.min(currentReports.size(), 54); i++) {
+            Report r = currentReports.get(i);
+            Item head = Item.get(Item.PLAYER_HEAD, 0, 1);
+            head.setCustomName("§cНа: §f" + r.target);
+            head.setLore(
+                    "§7От: §f" + r.reporter,
+                    "§7Причина: §f" + r.reason,
+                    "§7Время: §f" + r.time,
+                    "",
+                    "§eНажми, чтобы выбрать действие"
+            );
+            inv.setItem(i, head);
+        }
+
+        final int reportCount = currentReports.size();
+        inv.addListener((clicker, slot, item, action) -> {
+            if (slot < 0 || slot >= reportCount) return;
+            Report r = currentReports.get(slot);
+            clicker.closeInventory();
+            openActionForm(clicker, r);
+        });
+
+        player.addWindow(inv);
+    }
+
+    private void openActionForm(Player player, Report r) {
+        FormWindowSimple form = new FormWindowSimple(
+                "§cРепорт на " + r.target,
+                "§7От: §f" + r.reporter + "\n§7Причина: §f" + r.reason + "\n§7Время: §f" + r.time
+        );
+        form.addButton(new ElementButton("§aВызвать на проверку"));
+        form.addButton(new ElementButton("§eПроспекать (телепорт)"));
+        form.addButton(new ElementButton("§cЗакрыть дело"));
+
+        form.addHandler(FormResponseHandler.withoutPlayer(ignored -> {
+            if (form.wasClosed()) return;
+            int button = form.getResponse().getClickedButtonId();
+            switch (button) {
+                case 0: {
+                    Player target = getServer().getPlayer(r.target);
+                    if (target != null) {
+                        Level checkLevel = getServer().getLevelByName(CHECK_WORLD);
+                        if (checkLevel == null && getServer().loadLevel(CHECK_WORLD)) {
+                            checkLevel = getServer().getLevelByName(CHECK_WORLD);
+                        }
+                        if (checkLevel != null) {
+                            target.teleport(new Position(CHECK_X, CHECK_Y, CHECK_Z, checkLevel));
+                            target.setImmobile(true);
+                            checkingPlayers.add(target.getName());
+                            target.sendTitle("§cВы вызваны на проверку", "§eПроверяющий: §f" + player.getName(), 20, 100, 20);
+                            player.sendMessage("§aИгрок " + r.target + " вызван на проверку.");
+                        }
+                    } else {
+                        player.sendMessage("§cИгрок " + r.target + " не в сети.");
+                    }
+                    reports.remove(r);
+                    logAction(player.getName(), "РЕПОРТ: ВЫЗОВ", r.target, "Причина: " + r.reason);
+                    break;
+                }
+                case 1: {
+                    Player target = getServer().getPlayer(r.target);
+                    if (target != null) {
+                        player.teleport(target);
+                        player.sendMessage("§aВы телепортированы к " + r.target);
+                    } else {
+                        player.sendMessage("§cИгрок не в сети.");
+                    }
+                    reports.remove(r);
+                    logAction(player.getName(), "РЕПОРТ: СПЕК", r.target, "Причина: " + r.reason);
+                    break;
+                }
+                case 2: {
+                    reports.remove(r);
+                    player.sendMessage("§7Репорт на " + r.target + " закрыт.");
+                    logAction(player.getName(), "РЕПОРТ: ЗАКРЫТ", r.target, "Причина: " + r.reason);
+                    break;
+                }
+            }
+        }));
+
+        player.showFormWindow(form);
+    }
+
+    // ==================== /check ====================
     private boolean handleCheck(CommandSender sender, String[] args) {
         if (args.length == 0) {
             sender.sendMessage("§c/check <ник> §7— вызвать на проверку");
@@ -141,6 +290,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         return true;
     }
 
+    // ==================== /ban ====================
     private boolean handleBan(CommandSender sender, String[] args) {
         if (args.length < 2) { sender.sendMessage("§c/ban <ник> <срок> [причина]"); return true; }
         String targetName = args[0];
@@ -158,6 +308,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         return true;
     }
 
+    // ==================== /mute ====================
     private boolean handleMute(CommandSender sender, String[] args) {
         if (args.length < 2) { sender.sendMessage("§c/mute <ник> <срок> [причина]"); return true; }
         String targetName = args[0];
@@ -174,6 +325,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         return true;
     }
 
+    // ==================== /unban ====================
     private boolean handleUnban(CommandSender sender, String[] args) {
         if (args.length != 1) { sender.sendMessage("§c/unban <ник>"); return true; }
         boolean removed = bannedPlayers.remove(args[0].toLowerCase()) != null;
@@ -186,6 +338,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         return true;
     }
 
+    // ==================== /unmute ====================
     private boolean handleUnmute(CommandSender sender, String[] args) {
         if (args.length != 1) { sender.sendMessage("§c/unmute <ник>"); return true; }
         if (mutedPlayers.remove(args[0].toLowerCase()) != null) {
@@ -198,12 +351,13 @@ public class CheckPlugin extends PluginBase implements Listener {
         return true;
     }
 
+    // ==================== /checklogs ====================
     private boolean handleLogs(CommandSender sender, String[] args) {
         int lines = 20;
         if (args.length == 1) { try { lines = Integer.parseInt(args[0]); } catch (NumberFormatException ignored) {} }
         if (!logFile.exists()) { sender.sendMessage("§cЛог-файл пуст."); return true; }
         try {
-            java.util.List<String> all = java.nio.file.Files.readAllLines(logFile.toPath());
+            List<String> all = java.nio.file.Files.readAllLines(logFile.toPath());
             int from = Math.max(0, all.size() - lines);
             sender.sendMessage("§6=== Последние " + (all.size() - from) + " действий ===");
             for (int i = from; i < all.size(); i++) sender.sendMessage("§7" + all.get(i));
@@ -211,6 +365,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         return true;
     }
 
+    // ==================== БЛОКИРОВКИ ====================
     @EventHandler
     public void onCommandPreprocess(PlayerCommandPreprocessEvent event) {
         if (checkingPlayers.contains(event.getPlayer().getName())) {
@@ -278,6 +433,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         }
     }
 
+    // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
     private void announce(String header, String color, String[][] fields, String title, String subtitle) {
         StringBuilder sb = new StringBuilder();
         sb.append(LINE).append("\n").append(color).append("§l     ").append(header).append("\n").append(LINE).append("\n");
