@@ -20,11 +20,9 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -73,62 +71,6 @@ public class CheckPlugin extends PluginBase implements Listener {
     @Override
     public void onDisable() { savePunishmentsToConfig(); }
 
-    // ==================== АВТОДОПОЛНЕНИЕ ====================
-    @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        List<String> result = new ArrayList<>();
-        String cmd = command.getName().toLowerCase();
-
-        // /check — подсказки: done, leave, ники игроков
-        if (cmd.equals("check")) {
-            if (args.length == 1) {
-                String prefix = args[0].toLowerCase();
-                if ("done".startsWith(prefix)) result.add("done");
-                if ("leave".startsWith(prefix)) result.add("leave");
-                for (Player p : getServer().getOnlinePlayers().values()) {
-                    if (p.getName().toLowerCase().startsWith(prefix)) result.add(p.getName());
-                }
-            } else if (args.length == 2 && (args[0].equalsIgnoreCase("done") || args[0].equalsIgnoreCase("leave"))) {
-                String prefix = args[1].toLowerCase();
-                // Для done/leave показываем только тех, кто на проверке
-                for (String name : checkingPlayers) {
-                    if (name.toLowerCase().startsWith(prefix)) result.add(name);
-                }
-            }
-        }
-        // /ban, /mute, /unban, /unmute — подсказки ников
-        else if (cmd.equals("ban") || cmd.equals("mute")) {
-            if (args.length == 1) {
-                String prefix = args[0].toLowerCase();
-                for (Player p : getServer().getOnlinePlayers().values()) {
-                    if (p.getName().toLowerCase().startsWith(prefix)) result.add(p.getName());
-                }
-            } else if (args.length == 2) {
-                // Подсказки срока
-                String prefix = args[1].toLowerCase();
-                for (String d : new String[]{"1h", "1d", "7d", "14d", "30d", "1d12h"}) {
-                    if (d.startsWith(prefix)) result.add(d);
-                }
-            }
-        }
-        else if (cmd.equals("unban") || cmd.equals("unmute")) {
-            if (args.length == 1) {
-                String prefix = args[0].toLowerCase();
-                // Показываем и онлайн, и тех кто в списке наказаний
-                java.util.Set<String> names = new java.util.HashSet<>();
-                for (Player p : getServer().getOnlinePlayers().values()) names.add(p.getName());
-                if (cmd.equals("unban")) names.addAll(bannedPlayers.keySet());
-                else names.addAll(mutedPlayers.keySet());
-                for (String n : names) {
-                    if (n.toLowerCase().startsWith(prefix)) result.add(n);
-                }
-            }
-        }
-
-        return result;
-    }
-
-    // ==================== КОМАНДЫ ====================
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         switch (command.getName().toLowerCase()) {
@@ -261,7 +203,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         if (args.length == 1) { try { lines = Integer.parseInt(args[0]); } catch (NumberFormatException ignored) {} }
         if (!logFile.exists()) { sender.sendMessage("§cЛог-файл пуст."); return true; }
         try {
-            List<String> all = java.nio.file.Files.readAllLines(logFile.toPath());
+            java.util.List<String> all = java.nio.file.Files.readAllLines(logFile.toPath());
             int from = Math.max(0, all.size() - lines);
             sender.sendMessage("§6=== Последние " + (all.size() - from) + " действий ===");
             for (int i = from; i < all.size(); i++) sender.sendMessage("§7" + all.get(i));
