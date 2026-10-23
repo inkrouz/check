@@ -14,15 +14,10 @@ import cn.nukkit.event.player.PlayerQuitEvent;
 import cn.nukkit.form.element.ElementButton;
 import cn.nukkit.form.handler.FormResponseHandler;
 import cn.nukkit.form.window.FormWindowSimple;
-import cn.nukkit.item.Item;
 import cn.nukkit.level.Level;
 import cn.nukkit.level.Position;
 import cn.nukkit.plugin.PluginBase;
 import cn.nukkit.utils.Config;
-// Импорты FakeInventories (форк для Nukkit-MOT)
-import ru.luminia.fakeinventories.FakeInventories;
-import ru.luminia.fakeinventories.api.FakeInventory;
-import ru.luminia.fakeinventories.api.FakeInventoryType;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -68,7 +63,6 @@ public class CheckPlugin extends PluginBase implements Listener {
     private Config punishConfig;
     private File punishFile, logFile;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-    private FakeInventories fakeInventories;
 
     @Override
     public void onEnable() {
@@ -88,13 +82,6 @@ public class CheckPlugin extends PluginBase implements Listener {
             try { logFile.createNewFile(); } catch (Exception e) { getLogger().error("Не удалось создать файл логов!", e); }
         }
 
-        try {
-            fakeInventories = (FakeInventories) getServer().getServiceManager()
-                    .getProvider(FakeInventories.class).getProvider();
-        } catch (Exception e) {
-            getLogger().warning("FakeInventories не найден. /reports не будет работать.");
-        }
-
         this.getServer().getPluginManager().registerEvents(this, this);
         this.getLogger().info("CheckPlugin включен! Система проверок, наказаний и репортов активна.");
     }
@@ -102,9 +89,6 @@ public class CheckPlugin extends PluginBase implements Listener {
     @Override
     public void onDisable() { savePunishmentsToConfig(); }
 
-    public FakeInventories getFakeInventories() { return fakeInventories; }
-
-    // ==================== КОМАНДЫ ====================
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         switch (command.getName().toLowerCase()) {
@@ -136,43 +120,26 @@ public class CheckPlugin extends PluginBase implements Listener {
     // ==================== /reports ====================
     private boolean handleReports(CommandSender sender, String[] args) {
         if (!(sender instanceof Player)) { sender.sendMessage("§cТолько для игроков."); return true; }
-        if (fakeInventories == null) { sender.sendMessage("§cОшибка: FakeInventories не установлен."); return true; }
         if (reports.isEmpty()) { sender.sendMessage("§eРепортов нет."); return true; }
 
-        Player p = (Player) sender;
-        getServer().getScheduler().scheduleDelayedTask(this, () -> openReportGUI(p), 20);
-        return true;
-    }
-
-    private void openReportGUI(Player player) {
-        if (fakeInventories == null) return;
-        List<Report> currentReports = new ArrayList<>(reports);
-        FakeInventory inv = fakeInventories.createInventory(FakeInventoryType.DOUBLE_CHEST,
-                "§4Репорты (" + currentReports.size() + ")");
-
-        for (int i = 0; i < Math.min(currentReports.size(), 54); i++) {
-            Report r = currentReports.get(i);
-            Item head = Item.get(Item.PLAYER_HEAD, 0, 1);
-            head.setCustomName("§cНа: §f" + r.target);
-            head.setLore(
-                    "§7От: §f" + r.reporter,
-                    "§7Причина: §f" + r.reason,
-                    "§7Время: §f" + r.time,
-                    "",
-                    "§eНажми, чтобы выбрать действие"
-            );
-            inv.setItem(i, head);
+        Player player = (Player) sender;
+        // Показываем список репортов через форму с кнопками
+        FormWindowSimple listForm = new FormWindowSimple("§cРепорты (" + reports.size() + ")", "§7Выберите репорт:");
+        
+        for (Report r : reports) {
+            listForm.addButton(new ElementButton("§c" + r.target + " §7| от " + r.reporter));
         }
-
-        final int reportCount = currentReports.size();
-        inv.addListener((clicker, slot, item, action) -> {
-            if (slot < 0 || slot >= reportCount) return;
-            Report r = currentReports.get(slot);
-            clicker.closeInventory();
-            openActionForm(clicker, r);
-        });
-
-        player.addWindow(inv);
+        
+        listForm.addHandler(FormResponseHandler.withoutPlayer(ignored -> {
+            if (listForm.wasClosed()) return;
+            int index = listForm.getResponse().getClickedButtonId();
+            if (index < 0 || index >= reports.size()) return;
+            Report selected = reports.get(index);
+            openActionForm(player, selected);
+        }));
+        
+        player.showFormWindow(listForm);
+        return true;
     }
 
     private void openActionForm(Player player, Report r) {
