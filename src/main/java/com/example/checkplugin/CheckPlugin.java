@@ -8,7 +8,7 @@ import cn.nukkit.event.EventPriority;
 import cn.nukkit.event.Listener;
 import cn.nukkit.event.block.BlockBreakEvent;
 import cn.nukkit.event.block.BlockPlaceEvent;
-import cn.nukkit.event.entity.PlayerDeathEvent;
+import cn.nukkit.event.entity.EntityDamageEvent;
 import cn.nukkit.event.player.PlayerChatEvent;
 import cn.nukkit.event.player.PlayerCommandPreprocessEvent;
 import cn.nukkit.event.player.PlayerJoinEvent;
@@ -206,10 +206,17 @@ public class CheckPlugin extends PluginBase implements Listener {
         bioConfig.set(name + ".messages", bioConfig.getInt(name + ".messages", 0) + 1);
     }
 
+    // ИСПРАВЛЕНО: EntityDamageEvent вместо PlayerDeathEvent
     @EventHandler
-    public void onDeath(PlayerDeathEvent event) {
-        String name = event.getEntity().getName();
-        bioConfig.set(name + ".deaths", bioConfig.getInt(name + ".deaths", 0) + 1);
+    public void onEntityDamage(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player)) return;
+        Player player = (Player) event.getEntity();
+
+        // Проверяем, умрет ли игрок от этого урона
+        if (player.getHealth() - event.getFinalDamage() <= 0) {
+            String name = player.getName();
+            bioConfig.set(name + ".deaths", bioConfig.getInt(name + ".deaths", 0) + 1);
+        }
     }
 
     // ==================== ТАЙМЕР ====================
