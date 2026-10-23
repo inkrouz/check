@@ -159,12 +159,30 @@ public class CheckPlugin extends PluginBase implements Listener {
     private boolean handleReport(CommandSender sender, String[] args) {
         if (!(sender instanceof Player)) { sender.sendMessage("§cТолько для игроков."); return true; }
         if (args.length < 2) { sender.sendMessage("§c/report <ник> <причина>"); return true; }
+        
         String target = args[0];
         String reason = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
         String time = new SimpleDateFormat("HH:mm dd.MM").format(new Date());
+        
         reports.add(new Report(sender.getName(), target, reason, time));
         sender.sendMessage("§aРепорт на " + target + " отправлен.");
         getLogger().info("[REPORT] " + sender.getName() + " -> " + target + " | " + reason);
+
+        // === УВЕДОМЛЕНИЕ МОДЕРАТОРАМ ===
+        String alertMessage = LINE + "\n" +
+                "§c§l     НОВЫЙ РЕПОРТ\n" +
+                LINE + "\n" +
+                " §7От: §f" + sender.getName() + "\n" +
+                " §7На: §c" + target + "\n" +
+                " §7Причина: §f" + reason + "\n" +
+                LINE;
+                
+        for (Player online : getServer().getOnlinePlayers().values()) {
+            if (online.hasPermission("checkplugin.reports")) {
+                online.sendMessage(alertMessage);
+                online.sendTitle("§cНовый репорт", "§fНа игрока " + target, 10, 40, 10);
+            }
+        }
         return true;
     }
 
