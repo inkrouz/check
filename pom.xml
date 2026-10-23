@@ -15,10 +15,6 @@
             <id>repo-lanink-cn</id>
             <url>https://repo.lanink.cn/repository/maven-public/</url>
         </repository>
-        <repository>
-            <id>jitpack.io</id>
-            <url>https://jitpack.io</url>
-        </repository>
     </repositories>
     <dependencies>
         <!-- Ядро Nukkit-MOT -->
@@ -28,11 +24,11 @@
             <version>1.26.50-R1</version>
             <scope>provided</scope>
         </dependency>
-        <!-- FakeInventories для GUI репортов -->
+        <!-- FakeInventories для Nukkit-MOT -->
         <dependency>
-            <groupId>com.github.LuminiaDev</groupId>
-            <artifactId>FakeInventories-MOT</artifactId>
-            <version>master-SNAPSHOT</version>
+            <groupId>com.nukkitx</groupId>
+            <artifactId>fakeinventories</artifactId>
+            <version>1.0.3-MOT-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>
