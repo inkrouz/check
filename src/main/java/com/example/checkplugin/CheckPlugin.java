@@ -19,9 +19,10 @@ import cn.nukkit.level.Level;
 import cn.nukkit.level.Position;
 import cn.nukkit.plugin.PluginBase;
 import cn.nukkit.utils.Config;
-import me.onebone.fakeinventories.FakeInventories;
-import me.onebone.fakeinventories.api.FakeInventory;
-import me.onebone.fakeinventories.api.FakeInventoryType;
+// Импорты FakeInventories (форк для Nukkit-MOT)
+import ru.luminia.fakeinventories.FakeInventories;
+import ru.luminia.fakeinventories.api.FakeInventory;
+import ru.luminia.fakeinventories.api.FakeInventoryType;
 
 import java.io.File;
 import java.io.FileWriter;
