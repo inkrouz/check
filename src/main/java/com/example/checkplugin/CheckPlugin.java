@@ -48,7 +48,6 @@ public class CheckPlugin extends PluginBase implements Listener {
     // Таймер: сколько миллисекунд осталось у каждого игрока на проверке
     private final Map<String, Long> checkTimers = new HashMap<>();
     private final Map<String, String> checkerOfPlayer = new HashMap<>(); // кто проверяет игрока
-    private final Map<String, Boolean> timerPaused = new HashMap<>(); // пауза, если проверяющий вышел
     private static final long CHECK_DURATION_MS = 10 * 60 * 1000L; // 10 минут
 
     private static class P {
@@ -117,7 +116,6 @@ public class CheckPlugin extends PluginBase implements Listener {
 
     // ==================== ТАЙМЕР ====================
     private void updateTimers() {
-        long now = System.currentTimeMillis();
         for (String playerName : new ArrayList<>(checkingPlayers)) {
             Player p = getServer().getPlayer(playerName);
             if (p == null) continue;
@@ -125,8 +123,9 @@ public class CheckPlugin extends PluginBase implements Listener {
             // Проверяем, не вышел ли проверяющий
             String checkerName = checkerOfPlayer.get(playerName);
             Player checker = checkerName != null ? getServer().getPlayer(checkerName) : null;
-            boolean paused = checker == null || !checkingPlayers.contains(checkerName);
-            timerPaused.put(playerName, paused);
+            
+            // Таймер идет ТОЛЬКО если онлайн И игрок, И проверяющий
+            boolean paused = (checker == null);
 
             Long remaining = checkTimers.get(playerName);
             if (remaining == null) continue;
@@ -134,7 +133,6 @@ public class CheckPlugin extends PluginBase implements Listener {
             if (!paused) {
                 remaining -= 1000;
                 if (remaining <= 0) {
-                    // Время вышло
                     remaining = 0L;
                     checkTimers.put(playerName, remaining);
                     p.sendMessage("§cВремя проверки истекло. Ожидайте решения модератора.");
@@ -196,7 +194,7 @@ public class CheckPlugin extends PluginBase implements Listener {
                 "§7От: §f" + r.reporter + "\n§7Причина: §f" + r.reason + "\n§7Время: §f" + r.time
         );
         form.addButton(new ElementButton("§aВызвать на проверку"));
-        form.addButton(new ElementButton("§eПроспекать (телепорт)"));
+        form.addButton(new ElementButton("§eПроспекать (телепорт + GM3)"));
         form.addButton(new ElementButton("§cЗакрыть дело"));
 
         form.addHandler(FormResponseHandler.withoutPlayer(ignored -> {
@@ -218,8 +216,10 @@ public class CheckPlugin extends PluginBase implements Listener {
                 case 1: {
                     Player target = getServer().getPlayer(r.target);
                     if (target != null) {
+                        // Проспек: телепорт к игроку + GM3
+                        player.setGamemode(3);
                         player.teleport(target);
-                        player.sendMessage("§aВы телепортированы к " + r.target);
+                        player.sendMessage("§aВы телепортированы к " + r.target + " в режиме наблюдателя.");
                     } else {
                         player.sendMessage("§cИгрок не в сети.");
                     }
@@ -253,7 +253,7 @@ public class CheckPlugin extends PluginBase implements Listener {
                 Player target = getServer().getPlayer(targetName);
                 if (target != null) {
                     target.setImmobile(false);
-                    target.setGamemode(0); // Возвращаем выживание
+                    target.setGamemode(0);
                     target.sendMessage("§aПроверка завершена.");
                 }
                 // Снимаем гм3 с проверяющего, если он онлайн
@@ -262,7 +262,6 @@ public class CheckPlugin extends PluginBase implements Listener {
 
                 checkTimers.remove(targetName);
                 checkerOfPlayer.remove(targetName);
-                timerPaused.remove(targetName);
 
                 sender.sendMessage("§aИгрок " + targetName + " снят с проверки.");
                 logAction(sender.getName(), "СНЯЛ С ПРОВЕРКИ", targetName, "");
@@ -275,8 +274,7 @@ public class CheckPlugin extends PluginBase implements Listener {
             if (checkingPlayers.remove(targetName)) {
                 checkTimers.remove(targetName);
                 checkerOfPlayer.remove(targetName);
-                timerPaused.remove(targetName);
-                sender.sendMessage("§aИгроку " + targetName + " разрешено выйти без бана.");
+                sender.sendMessage("§aИгроку " + targetName + " разрешено выйти без бана. Проверка сброшена.");
                 logAction(sender.getName(), "РАЗРЕШИЛ ВЫХОД", targetName, "");
             } else sender.sendMessage("§cИгрок " + targetName + " не на проверке.");
             return true;
@@ -302,10 +300,8 @@ public class CheckPlugin extends PluginBase implements Listener {
         checkingPlayers.add(target.getName());
         checkTimers.put(target.getName(), CHECK_DURATION_MS);
         checkerOfPlayer.put(target.getName(), checker.getName());
-        timerPaused.put(target.getName(), false);
 
-        // Проверяющий: гм3 и телепорт рядом
-        checker.setGamemode(3);
+        // Проверяющий: НЕ в GM3, просто телепорт рядом
         checker.teleport(new Position(CHECKER_X, CHECKER_Y, CHECKER_Z, checkLevel));
 
         // Новый текст проверки
@@ -322,10 +318,8 @@ public class CheckPlugin extends PluginBase implements Listener {
 
         target.sendTitle("§cВы вызваны на проверку", "§eПроверяющий: §f" + checker.getName(), 20, 100, 20);
 
-        // Титул проверяющему
         checker.sendMessage(LINE);
         checker.sendMessage("§eВы вызвали §f" + target.getName() + " §eна проверку.");
-        checker.sendMessage("§eВы в режиме наблюдателя (GM3).");
         checker.sendMessage(LINE);
 
         checker.sendMessage("§aИгрок " + target.getName() + " телепортирован на проверку.");
@@ -387,7 +381,6 @@ public class CheckPlugin extends PluginBase implements Listener {
         boolean removed = bannedPlayers.remove(args[0].toLowerCase()) != null;
         try { getServer().getNameBans().remove(args[0]); } catch (Exception ignored) { }
         if (removed) {
-            // Разбан виден только проверяющему
             sender.sendMessage("§aИгрок " + args[0] + " разбанен.");
             logAction(sender.getName(), "РАЗБАНИЛ", args[0], "");
             savePunishmentsToConfig();
@@ -452,24 +445,45 @@ public class CheckPlugin extends PluginBase implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         String name = event.getPlayer().getName();
         String lower = name.toLowerCase();
+        Player p = event.getPlayer();
+
+        // Проверка бана
         P ban = bannedPlayers.get(lower);
         if (ban != null) {
             if (System.currentTimeMillis() < ban.expire) {
-                event.getPlayer().kick(banScreen(name, ban.banner, ban.reason, ban.duration, ban.expire), false);
+                final String kickMessage = banScreen(name, ban.banner, ban.reason, ban.duration, ban.expire);
+                getServer().getScheduler().scheduleDelayedTask(this, () -> {
+                    Player target = getServer().getPlayer(name);
+                    if (target != null) target.kick(kickMessage, false);
+                }, 1);
                 return;
             } else bannedPlayers.remove(lower);
         }
-        // Если игрок всё ещё на проверке — вернуть
+
+        // Если зашел ПРОВЕРЯЕМЫЙ (он в checkingPlayers)
         if (checkingPlayers.contains(name)) {
             Level checkLevel = getServer().getLevelByName(CHECK_WORLD);
             if (checkLevel == null) return;
             getServer().getScheduler().scheduleDelayedTask(this, () -> {
-                Player p = getServer().getPlayer(name);
-                if (p != null && checkingPlayers.contains(name)) {
-                    p.teleport(new Position(CHECK_X, CHECK_Y, CHECK_Z, checkLevel));
-                    p.setImmobile(true);
-                    p.sendMessage(LINE + "\n§c§l     ВЫ ВСЁ ЕЩЁ НА ПРОВЕРКЕ\n" + LINE + "\n §7Ожидайте проверяющего\n" + LINE);
-                    p.sendTitle("§cПроверка продолжается", "§eОжидайте проверяющего", 20, 80, 20);
+                Player target = getServer().getPlayer(name);
+                if (target != null && checkingPlayers.contains(name)) {
+                    target.teleport(new Position(CHECK_X, CHECK_Y, CHECK_Z, checkLevel));
+                    target.setImmobile(true);
+                    target.sendMessage(LINE + "\n§c§l     ВЫ ВСЁ ЕЩЁ НА ПРОВЕРКЕ\n" + LINE + "\n §7Ожидайте проверяющего\n" + LINE);
+                    target.sendTitle("§cПроверка продолжается", "§eОжидайте проверяющего", 20, 80, 20);
+                }
+            }, 20);
+        }
+
+        // Если зашел ПРОВЕРЯЮЩИЙ (он есть в значениях checkerOfPlayer)
+        if (checkerOfPlayer.containsValue(name)) {
+            Level checkLevel = getServer().getLevelByName(CHECK_WORLD);
+            if (checkLevel == null) return;
+            getServer().getScheduler().scheduleDelayedTask(this, () -> {
+                Player checker = getServer().getPlayer(name);
+                if (checker != null) {
+                    checker.teleport(new Position(CHECKER_X, CHECKER_Y, CHECKER_Z, checkLevel));
+                    checker.sendMessage("§aВы вернулись на проверку. Таймер продолжен.");
                 }
             }, 20);
         }
@@ -478,14 +492,6 @@ public class CheckPlugin extends PluginBase implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         String name = event.getPlayer().getName();
-        // Если проверяющий вышел — ставим таймер на паузу
-        if (checkerOfPlayer.containsValue(name)) {
-            for (Map.Entry<String, String> e : checkerOfPlayer.entrySet()) {
-                if (e.getValue().equals(name)) {
-                    timerPaused.put(e.getKey(), true);
-                }
-            }
-        }
         // Если проверяемый вышел без разрешения — бан
         if (checkingPlayers.contains(name)) {
             long durationMs = 14L * 86_400_000L;
@@ -496,7 +502,6 @@ public class CheckPlugin extends PluginBase implements Listener {
             checkingPlayers.remove(name);
             checkTimers.remove(name);
             checkerOfPlayer.remove(name);
-            timerPaused.remove(name);
             announce("БАН ЗА ОТКАЗ", "§4", new String[][]{{"Игрок", name}, {"Срок", "14д"}, {"Причина", reason}}, "§4§lОТКАЗ ОТ ПРОВЕРКИ", "§f" + name + " §7забанен на 14д");
             logAction("Система", "ЗАБАНИЛ (ОТКАЗ)", name, "14д | Выход без разрешения");
             savePunishmentsToConfig();
