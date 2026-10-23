@@ -17,18 +17,11 @@
         </repository>
     </repositories>
     <dependencies>
-        <!-- Ядро Nukkit-MOT -->
+        <!-- Только ядро Nukkit-MOT -->
         <dependency>
             <groupId>com.nukkit-mot</groupId>
             <artifactId>nukkit-mot</artifactId>
             <version>1.26.50-R1</version>
-            <scope>provided</scope>
-        </dependency>
-        <!-- FakeInventories для Nukkit-MOT -->
-        <dependency>
-            <groupId>com.nukkitx</groupId>
-            <artifactId>fakeinventories</artifactId>
-            <version>1.0.3-MOT-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>
