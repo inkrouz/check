@@ -1,12 +1,15 @@
 name: CheckPlugin
 main: com.example.checkplugin.CheckPlugin
-version: "1.4.0"
+version: "2.0.0"
 api: ["1.0.0"]
 author: YourName
+depend:
+  - FakeInventories
+
 commands:
   check:
     description: Система проверок
-    usage: "/check <ник> | /check done <ник>"
+    usage: "/check <ник> | /check done <ник> | /check leave <ник>"
     permission: checkplugin.use
   ban:
     description: Забанить игрока
@@ -28,6 +31,15 @@ commands:
     description: Показать последние действия
     usage: "/checklogs [кол-во]"
     permission: checkplugin.logs
+  report:
+    description: Пожаловаться на игрока
+    usage: "/report <ник> <причина>"
+    permission: checkplugin.report
+  reports:
+    description: Открыть список репортов
+    usage: "/reports"
+    permission: checkplugin.reports
+
 permissions:
   checkplugin.use:
     default: op
@@ -40,4 +52,8 @@ permissions:
   checkplugin.unmute:
     default: op
   checkplugin.logs:
+    default: op
+  checkplugin.report:
+    default: true
+  checkplugin.reports:
     default: op
