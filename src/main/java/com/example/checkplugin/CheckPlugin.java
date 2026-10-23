@@ -6,6 +6,9 @@ import cn.nukkit.command.CommandSender;
 import cn.nukkit.event.EventHandler;
 import cn.nukkit.event.EventPriority;
 import cn.nukkit.event.Listener;
+import cn.nukkit.event.block.BlockBreakEvent;
+import cn.nukkit.event.block.BlockPlaceEvent;
+import cn.nukkit.event.entity.PlayerDeathEvent;
 import cn.nukkit.event.player.PlayerChatEvent;
 import cn.nukkit.event.player.PlayerCommandPreprocessEvent;
 import cn.nukkit.event.player.PlayerJoinEvent;
@@ -46,12 +49,11 @@ public class CheckPlugin extends PluginBase implements Listener {
     private final Map<String, String> checkerOfPlayer = new HashMap<>();
     private final Set<String> pausedTimers = ConcurrentHashMap.newKeySet();
     private final Set<String> checkingPlayers = ConcurrentHashMap.newKeySet();
-    private final Map<String, String> playerDevices = new HashMap<>(); // Устройства
+    private final Map<String, String> playerDevices = new HashMap<>();
     
     private static final String CHECK_WORLD = "dowtest";
     private static final double CHECK_X = -2, CHECK_Y = 98, CHECK_Z = -1;
     private static final double CHECKER_X = -5, CHECKER_Y = 98, CHECKER_Z = 1;
-    // Красно-белый дизайн (тёмный разделитель)
     private static final String LINE = "§8§m──────────────────────────────";
     private static final long CHECK_DURATION_MS = 10 * 60 * 1000L;
 
@@ -64,7 +66,7 @@ public class CheckPlugin extends PluginBase implements Listener {
     public static class Report {
         public String reporter, target, reason, time;
         public String claimedBy;
-        public String device; // Устройство
+        public String device;
         
         public Report(String reporter, String target, String reason, String time, String device) {
             this.reporter = reporter; this.target = target; this.reason = reason; this.time = time;
@@ -75,8 +77,8 @@ public class CheckPlugin extends PluginBase implements Listener {
     private final Map<String, P> mutedPlayers = new HashMap<>();
     private final Map<String, P> bannedPlayers = new HashMap<>();
     private final List<Report> reports = new ArrayList<>();
-    private Config punishConfig, checkConfig;
-    private File punishFile, logFile, checkFile;
+    private Config punishConfig, checkConfig, bioConfig;
+    private File punishFile, logFile, checkFile, bioFile;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     @Override
@@ -92,6 +94,10 @@ public class CheckPlugin extends PluginBase implements Listener {
         checkConfig = new Config(checkFile, Config.YAML);
         loadChecksFromConfig();
 
+        bioFile = new File(getDataFolder(), "bio.yml");
+        if (!bioFile.exists()) { bioFile.getParentFile().mkdirs(); try { bioFile.createNewFile(); } catch (Exception e) {} }
+        bioConfig = new Config(bioFile, Config.YAML);
+
         logFile = new File(getDataFolder(), "actions.log");
         if (!logFile.exists()) { logFile.getParentFile().mkdirs(); try { logFile.createNewFile(); } catch (Exception e) {} }
 
@@ -101,7 +107,7 @@ public class CheckPlugin extends PluginBase implements Listener {
     }
 
     @Override
-    public void onDisable() { savePunishmentsToConfig(); saveChecksToConfig(); }
+    public void onDisable() { savePunishmentsToConfig(); saveChecksToConfig(); bioConfig.save(); }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -114,11 +120,52 @@ public class CheckPlugin extends PluginBase implements Listener {
             case "checklogs":return handleLogs(sender, args);
             case "report":   return handleReport(sender, args);
             case "reports":  return handleReports(sender, args);
+            case "bio":      return handleBio(sender, args);
             default:         return false;
         }
     }
 
-    // ==================== ПОЛУЧЕНИЕ УСТРОЙСТВА ====================
+    // ==================== /bio ====================
+    private boolean handleBio(CommandSender sender, String[] args) {
+        if (args.length != 1) { sender.sendMessage("§cИспользование: /bio <ник>"); return true; }
+        String targetName = args[0];
+        Player target = getServer().getPlayer(targetName);
+        
+        String displayName = targetName;
+        String device = playerDevices.getOrDefault(targetName, "Неизвестно");
+        String firstPlayedStr = "Неизвестно";
+        
+        if (target != null) {
+            displayName = target.getName();
+            device = playerDevices.getOrDefault(target.getName(), "Неизвестно");
+            Long firstPlayed = target.getFirstPlayed();
+            if (firstPlayed != null && firstPlayed > 0) {
+                SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm");
+                firstPlayedStr = sdf.format(new Date(firstPlayed * 1000L));
+            }
+        }
+        
+        int broken = bioConfig.getInt(targetName + ".blocks_broken", 0);
+        int placed = bioConfig.getInt(targetName + ".blocks_placed", 0);
+        int messages = bioConfig.getInt(targetName + ".messages", 0);
+        int deaths = bioConfig.getInt(targetName + ".deaths", 0);
+        
+        sender.sendMessage(LINE);
+        sender.sendMessage("§c§l     ДОСЬЕ НА ИГРОКА");
+        sender.sendMessage(LINE);
+        sender.sendMessage("§fНик: §c" + displayName);
+        sender.sendMessage("§fУстройство: §c" + device);
+        sender.sendMessage("§fПервый вход: §c" + firstPlayedStr);
+        sender.sendMessage("");
+        sender.sendMessage("§fСломал блоков: §c" + broken);
+        sender.sendMessage("§fПоставил блоков: §c" + placed);
+        sender.sendMessage("§fСообщений в чат: §c" + messages);
+        sender.sendMessage("§fСмертей: §c" + deaths);
+        sender.sendMessage(LINE);
+        return true;
+    }
+
+    // ==================== УСТРОЙСТВО ====================
     @EventHandler
     public void onDataPacketReceive(DataPacketReceiveEvent event) {
         if (event.getPacket() instanceof LoginPacket) {
@@ -126,7 +173,6 @@ public class CheckPlugin extends PluginBase implements Listener {
                 ClientChainData data = ClientChainData.read((LoginPacket) event.getPacket());
                 String playerName = data.getUsername();
                 int os = data.getDeviceOS();
-                
                 String osName;
                 switch (os) {
                     case 1: osName = "Android"; break;
@@ -137,8 +183,33 @@ public class CheckPlugin extends PluginBase implements Listener {
                     default: osName = "OS (" + os + ")"; break;
                 }
                 playerDevices.put(playerName, osName);
-            } catch (Exception e) { /* Игнорируем, если не удалось */ }
+            } catch (Exception e) { }
         }
+    }
+
+    // ==================== СТАТИСТИКА ДЛЯ BIO ====================
+    @EventHandler
+    public void onBlockBreak(BlockBreakEvent event) {
+        String name = event.getPlayer().getName();
+        bioConfig.set(name + ".blocks_broken", bioConfig.getInt(name + ".blocks_broken", 0) + 1);
+    }
+
+    @EventHandler
+    public void onBlockPlace(BlockPlaceEvent event) {
+        String name = event.getPlayer().getName();
+        bioConfig.set(name + ".blocks_placed", bioConfig.getInt(name + ".blocks_placed", 0) + 1);
+    }
+
+    @EventHandler
+    public void onChatStat(PlayerChatEvent event) {
+        String name = event.getPlayer().getName();
+        bioConfig.set(name + ".messages", bioConfig.getInt(name + ".messages", 0) + 1);
+    }
+
+    @EventHandler
+    public void onDeath(PlayerDeathEvent event) {
+        String name = event.getEntity().getName();
+        bioConfig.set(name + ".deaths", bioConfig.getInt(name + ".deaths", 0) + 1);
     }
 
     // ==================== ТАЙМЕР ====================
@@ -186,7 +257,6 @@ public class CheckPlugin extends PluginBase implements Listener {
         reports.add(new Report(sender.getName(), target, reason, time, targetDevice));
         sender.sendMessage("§a✔ Репорт на §f" + target + " §aотправлен.");
         
-        // Красно-белое уведомление
         String alert = LINE + "\n §c§lНОВЫЙ РЕПОРТ\n" + LINE + "\n §fНа игрока: §c" + target + "\n §fУстройство: §c" + targetDevice + "\n §fПричина: §c" + reason + "\n §fОт: §c" + sender.getName() + "\n" + LINE;
         for (Player online : getServer().getOnlinePlayers().values()) {
             if (online.hasPermission("checkplugin.reports")) online.sendMessage(alert);
@@ -273,11 +343,7 @@ public class CheckPlugin extends PluginBase implements Listener {
         if (args.length == 1) {
             Player target = getServer().getPlayer(args[0]);
             if (target == null) { sender.sendMessage("§cИгрок не найден."); return true; }
-            // ЗАЩИТА: если уже на проверке
-            if (checkingPlayers.contains(target.getName())) {
-                sender.sendMessage("§cИгрок уже находится на проверке!");
-                return true;
-            }
+            if (checkingPlayers.contains(target.getName())) { sender.sendMessage("§cИгрок уже находится на проверке!"); return true; }
             if (sender instanceof Player && ((Player) sender).getGamemode() == 3) ((Player) sender).setGamemode(0);
             startCheck((Player) sender, target);
             return true;
@@ -299,7 +365,6 @@ public class CheckPlugin extends PluginBase implements Listener {
         checker.teleport(new Position(CHECKER_X, CHECKER_Y, CHECKER_Z, lvl)); 
         saveChecksToConfig();
 
-        // Красно-белый текст проверки
         target.sendMessage(LINE);
         target.sendMessage("§c§l     ПРОВЕРКА");
         target.sendMessage(LINE);
@@ -329,7 +394,6 @@ public class CheckPlugin extends PluginBase implements Listener {
         return true;
     }
 
-    // Красно-белая табличка бана
     private String banScreen(String target, String banner, String reason, long duration, long expire) {
         return LINE + "\n" +
                 "§c§lВЫ ЗАБАНЕНЫ\n" +
